@@ -1,7 +1,7 @@
 #define PLUGIN_NAME           "[MM] Suicide Bomber"
 #define PLUGIN_AUTHOR         "Snowy"
 #define PLUGIN_DESCRIPTION    "The mother zombies gets to be a suicide bomber"
-#define PLUGIN_VERSION        "1.0-alpha"
+#define PLUGIN_VERSION        "1.0.1-alpha"
 #define PLUGIN_URL            ""
 
 #include <sourcemod>
@@ -21,6 +21,8 @@ ConVar g_cSBdamage = null;
 ConVar g_cSBtimer = null;
 ConVar g_cSBcooldown = null;
 ConVar g_cSBreminder = null;
+ConVar g_cSBringHex = null;
+
 
 bool g_bSBenabled;
 float g_fSBcooldown;
@@ -28,6 +30,7 @@ float g_fSBreminder;
 int g_iSBdamageRadius;
 int g_iSBdamage;
 int g_iSBtimer;
+char g_sSBringHex[10];
 
 /*
 * Main variables
@@ -69,12 +72,15 @@ public Plugin myinfo =
 
 public void OnPluginStart()
 {
+	LoadTranslations("common.phrases");
+	
 	g_cSBenabled = 				CreateConVar("sb_enabled", 			"0", 			"Enable/disable the plugin");
-	g_cSBdamageRadius = 		CreateConVar("sb_damage_radius",	"1000",			"The damage radius of the explosion (int)");
-	g_cSBdamage =				CreateConVar("sb_damage",			"350",			"The damage of the explosion (int)");
+	g_cSBdamageRadius = 		CreateConVar("sb_damage_radius",	"850",			"The damage radius of the explosion (int)");
+	g_cSBdamage =				CreateConVar("sb_damage",			"450",			"The damage of the explosion (int)");
 	g_cSBtimer = 				CreateConVar("sb_timer",			"10.0",			"Time to explode after player triggers the explosion");
 	g_cSBcooldown =				CreateConVar("sb_cooldown",			"60.0",			"Time in seconds for the bomb cooldown. (float)");
 	g_cSBreminder =				CreateConVar("sb_reminder",			"120.0",		"Time in seconds to remind the player that they have the bomb. (float)");
+	g_cSBringHex = 				CreateConVar("sb_ring_hex",			"eb6a59",		"Hex value for the color of the ring (do not include the #)");
 	
 	HookEvent("round_end", Event_RoundEnd);
 	
@@ -97,6 +103,7 @@ public void OnConfigsExecuted()
 	g_cSBtimer.AddChangeHook(OnConVarChanged);
 	g_cSBcooldown.AddChangeHook(OnConVarChanged);
 	g_cSBreminder.AddChangeHook(OnConVarChanged);
+	g_cSBringHex.AddChangeHook(OnConVarChanged);
 }
 
 void GetValues()
@@ -107,6 +114,7 @@ void GetValues()
 	g_iSBtimer = g_cSBtimer.IntValue;
 	g_fSBcooldown = g_cSBcooldown.FloatValue;
 	g_fSBreminder = g_cSBreminder.FloatValue;
+	g_cSBringHex.GetString(g_sSBringHex, sizeof(g_sSBringHex));
 }
 
 public void OnConVarChanged (ConVar CVar, const char[] oldVal, const char[] newVal)
@@ -255,8 +263,14 @@ void SetGlow (int client, float fDuration)
 void SetupEffects(float fOrigin[3])
 {
 	/* Ring */
-	int color[4] = {235, 106, 89, 255};
-	TE_SetupBeamRingPoint(fOrigin, 10.0, 500.0, g_iLaserSprite, g_iHaloSprite, 0, 1, 1.0, 2.0, 0.0, color, 10, FBEAM_SOLID);
+	int iBuffer = StringToInt(g_sSBringHex, 16);
+	int iColor[4];
+	iColor[0] = ((iBuffer >> 16) & 0xFF);
+	iColor[1] = ((iBuffer >> 8)  & 0xFF);
+	iColor[2] = ((iBuffer >> 0)  & 0xFF);
+	iColor[3] = 255;
+	
+	TE_SetupBeamRingPoint(fOrigin, 10.0, 500.0, g_iLaserSprite, g_iHaloSprite, 0, 1, 1.0, 2.0, 0.0, iColor, 10, FBEAM_SOLID);
 	TE_SendToAll();
 	
 	/* Explosion x2 */
@@ -281,16 +295,40 @@ public Action Command_Debug (int client, int args)
 
 public Action Command_SBMe (int client, int args)
 {
-	if (!IsValidClient(client, true))
-		return Plugin_Handled;
-	
-	if (!ZR_IsClientZombie(client)) {
-		PrintToChat(client, " \x10[SuicideBomber] \x05You can't be a human suicide bomber!");
+	if (!g_bSBenabled) {
+		PrintToChat(client, " \x10[SuicideBomber] You can't use this command while the mode is disabled!");
 		return Plugin_Handled;
 	}
 	
-	g_eSBclient[client].isBomber = true;
-	PrintToChat(client, " \x10[SuicideBomber] \x05You are now a suicide bomber!");
+	if (args == 0) {
+		if (!IsValidClient(client, true))
+			return Plugin_Handled;
+			
+		if (!ZR_IsClientZombie(client)) {
+			PrintToChat(client, " \x10[SuicideBomber] \x05You can't be a human suicide bomber!");
+			return Plugin_Handled;
+		}
+		
+		g_eSBclient[client].isBomber = true;
+		PrintToChat(client, " \x10[SuicideBomber] \x05You are now a suicide bomber!");
+		return Plugin_Handled;
+	}
+
+	if (args == 1)
+	{
+		char arg1[65];
+		GetCmdArg(1, arg1, sizeof(arg1));
+		int target = FindTarget(client, arg1, false, false);
+		if (target == -1 || !IsValidClient(target, true) || !ZR_IsClientZombie(target))
+		{
+			return Plugin_Handled;
+		}
+		
+		g_eSBclient[target].isBomber = true;
+		PrintToChat(client, " \x10[SuicideBomber] \x07%N \x05is now a suicide bomber!", target);
+		PrintToChat(target, " \x10[SuicideBomber] \x07%N \x05made you a suicide bomber!", client);
+	}
+	
 	return Plugin_Handled;
 }
 
@@ -354,7 +392,7 @@ public Action Timer_BombBeep (Handle timer, int data)
 		
 	}
 	
-	PrintToChat(client, " \x10[SuicideBomber] \x05Your bomb will go blow in \x07%i...", g_eSBclient[client].beepTimer);
+	PrintToChat(client, " \x10[SuicideBomber] \x05Your bomb will blow in \x07%i...", g_eSBclient[client].beepTimer);
 	return Plugin_Continue;
 }
 
